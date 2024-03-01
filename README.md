@@ -14,6 +14,14 @@
     - La cartella "./outputs" deve esistere, altrimenti modificare i parametri perchè i file vengano trovati correttamente
     - Testato col profilo in inglese, non ancora in italiano
 
+## Installazione
+
+Se avete già settato un python environment eseguite su un terminale:
+
+```
+pip install -r requirements.txt
+```
+
 ## Uso
 
 Cercare la sezione "# %% Profile info, credentials and parameters", modificare in seguito le macro:
