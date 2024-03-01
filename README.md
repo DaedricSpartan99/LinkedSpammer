@@ -1,6 +1,6 @@
-% Breaking linkedin
+# Breaking linkedin
 
-## Script per automatizzare lavoro inutile, da eseguire **in ordine**:
+## Script per automatizzare lavoro sbatta, da eseguire **in ordine**:
 
     1) company_people_search.py : a partire da una pagina (ben scelta) estrae una serie di pagine affiliate e mette i link in un file, è più per trovare aziende piccole italiane
     2) company_find_people.py : prende i profili trovati da 1) e estrae le persone che hanno come ruolo "director", "CEO" o simili. Non è perfetto può sbagliare, ma funziona abbastanza bene per essere usato. Anche lui mette i profili in un file
