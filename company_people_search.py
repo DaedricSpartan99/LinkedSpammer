@@ -7,19 +7,15 @@ Created on Thu Feb 15 21:48:08 2024
 """
 
 from selenium import webdriver
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.wait import WebDriverWait
 import time
 
 # import Action chains  
-from selenium.webdriver.common.action_chains import ActionChains 
 from selenium.common.exceptions import NoSuchElementException
 from selenium.common.exceptions import StaleElementReferenceException, ElementClickInterceptedException
 
-import re
 import random
+import os
 
 import pandas as pd
 from difflib import SequenceMatcher
@@ -36,31 +32,54 @@ def humanize():
 def similar(a, b):
     return SequenceMatcher(None, a, b).ratio()
 
-# %% Initialize driver
-
-driver = webdriver.Firefox()
-
-ALREADY_LOGGED_IN = False
 
 # %% Profile info, credentials and parameters
 
 # profile info and storage
 USERNAME = ""
 PASSWORD = ""
-FOLLOWUP_FILE = "Followup"
+FOLLOWUP_FILE = "outputs/companies"
 LANG = "en"
-
-#USERNAME = "desky.lausanne@gmail.com"
-#PASSWORD = "Fabio@nobile2024"
-#FOLLOWUP_FILE = "Followup_desky"
-#LANG = "it"
+BROWSER = 'firefox'
 
 
 # algorithm parameters
 SIMILARITY_THRESHOLD = 0.8
-STOP_AT = 50
-SEED ="https://www.linkedin.com/company/ferrovie-dello-stato-s-p-a/"
+STOP_AT = 200
+SEED ="https://www.linkedin.com/company/business-integration-partners/life/65a369e2-9947-47f6-b1ae-7b900802edc8/"
 
+
+# %% Initialize driver
+
+def switch_driver():
+    if BROWSER == 'firefox':
+        return webdriver.Firefox()
+    elif BROWSER == 'chrome':
+        return webdriver.Chrome()
+
+def isBrowserAlive(driver):
+   try:
+      driver.current_url
+      # or driver.title
+      return True
+   except:
+      return False
+
+ALREADY_LOGGED_IN = False
+
+# take existing driver if there is one open
+def get_driver():
+    try:
+        if isBrowserAlive(driver):
+            ALREADY_LOGGED_IN = True
+            return driver
+        else:
+            return switch_driver()
+    except NameError:
+        return switch_driver()
+    
+    
+driver = get_driver()
 
 # %% Login
 
@@ -130,9 +149,11 @@ cities = list(df['Denominazione in italiano'].dropna())
 
 VISITED = []
 
-# load already visited profiles
-with open(FOLLOWUP_FILE) as follows_file:
-    VISITED = follows_file.readlines()
+if os.path.isfile(FOLLOWUP_FILE):
+
+    # load already visited profiles
+    with open(FOLLOWUP_FILE) as follows_file:
+        VISITED = follows_file.readlines()
 
 # %% Connect to profiles
 
@@ -231,6 +252,7 @@ def collect_links_connect(all_buttons):
                 VISITED.append(link)
                 
     return candidates
+
 
 def collect_links_follow(all_buttons):
     
@@ -426,7 +448,11 @@ def connect(profile):
 # Execute with a seed
 connect(SEED)
 
+print("Algorithm end \n")
+
 # %% Store profiles
+
+# open file and store data
 f = open(FOLLOWUP_FILE, 'a')
 # print results
 for p in PROFILES:

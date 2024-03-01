@@ -7,22 +7,17 @@ Created on Mon Feb 26 08:29:05 2024
 """
 
 from selenium import webdriver
-from selenium.webdriver.common.keys import Keys
-from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.common.by import By
-from selenium.webdriver.support.wait import WebDriverWait
 import time
 
 # import Action chains  
-from selenium.webdriver.common.action_chains import ActionChains 
 from selenium.common.exceptions import NoSuchElementException
 from selenium.common.exceptions import StaleElementReferenceException, ElementClickInterceptedException
 
-import re
 import random
 
-import pandas as pd
 from difflib import SequenceMatcher
+import os
 
 # %%Functions definition
 
@@ -34,9 +29,13 @@ def humanize():
     time.sleep(2.5 + random.uniform(-1,3))
 
 
+    
+def similar(a, b):
+    return SequenceMatcher(None, a, b).ratio()
+
 # %% Load company profiles
 
-FOLLOWUP_FILE = "Followup"
+FOLLOWUP_FILE = "outputs/companies"
 
 FOLLOWUP = []
 
@@ -47,11 +46,6 @@ with open(FOLLOWUP_FILE) as follows_file:
 # filter companies
 FOLLOWUP = list(filter(lambda profile: "company" in profile, FOLLOWUP))
 
-# %% Initialize driver
-
-driver = webdriver.Firefox()
-
-ALREADY_LOGGED_IN = False
 
 # %% Profile info, credentials and parameters
 
@@ -59,13 +53,45 @@ ALREADY_LOGGED_IN = False
 USERNAME = ""
 PASSWORD = ""
 LANG = "en"
+BROWSER = 'firefox'
 
-PROFILES_FILE = "People"
+PROFILES_FILE = "outputs/company_people"
+SIMILARITY_THRESHOLD = 0.8
 
-#USERNAME = "desky.lausanne@gmail.com"
-#PASSWORD = "Fabio@nobile2024"
-#FOLLOWUP_FILE = "Followup_desky"
-#LANG = "it"
+
+# %% Initialize driver
+
+def switch_driver():
+    if BROWSER == 'firefox':
+        return webdriver.Firefox()
+    elif BROWSER == 'chrome':
+        return webdriver.Chrome()
+
+def isBrowserAlive(driver):
+   try:
+      driver.current_url
+      # or driver.title
+      return True
+   except:
+      return False
+
+ALREADY_LOGGED_IN = False
+
+# take existing driver if there is one open
+def get_driver():
+    try:
+        if isBrowserAlive(driver):
+            ALREADY_LOGGED_IN = True
+            return driver
+        else:
+            return switch_driver()
+    except NameError:
+        return switch_driver()
+    
+    
+driver = get_driver()
+
+
 
 # %% Language
 
@@ -122,30 +148,79 @@ if not ALREADY_LOGGED_IN:
     
     ALREADY_LOGGED_IN = True
     
+    
+# %% Match specific keywords in description
+
+RELEVANT_KEYWORDS = {
+        'director' : 10,
+        'ceo' : 10,
+        'dirigente' : 10,
+        'delegato' : 10,
+        'direttore' : 10,
+        'co-founder' : 10,
+        'founder' : 10,
+        'fondatore' : 10,
+        'co-fondatore' : 10,
+    }
+
+def relevance_score(description):
+    
+    # score 
+    score = 0
+    
+    # separe description into keywords
+    words = [word.strip().lower() for word in description.split(' ')]
+    
+    for word in words:
+        for key, value in RELEVANT_KEYWORDS.items():
+            if similar(word, key) > SIMILARITY_THRESHOLD:
+                score += value
+    
+    return score
+    
 # %% Start algorithm
 
-def get_profile_link(button):
+def get_profile_li(button):
     
     lis = button.find_elements(By.XPATH, ".//ancestor::li[contains(@class, 'org-people-profile-card__profile-card-spacing')]")
     
     if len(lis) > 0:
-        li = lis[0]
-        
-        # recurse down an find <a href=>
-        a = li.find_element(By.XPATH, ".//a[@href]")
-        miniprofile = a.get_attribute("href")
-        
-        # get clear link
-        return miniprofile.split('?')[0] + '/'
+        return lis[0]
+    else:
+        return None
+    
 
-    return None
+def get_profile_link(li):
+    
+    # recurse down an find <a href=>
+    a = li.find_element(By.XPATH, ".//a[@href]")
+    miniprofile = a.get_attribute("href")
+        
+    # get clear link
+    return miniprofile.split('?')[0] + '/'
+
+
+
+def get_profile_description(li):
+    
+    divs = li.find_elements(By.XPATH, ".//div[contains(@class, 't-14')]")
+    
+    if len(divs) > 0:
+        return divs[0].text
+    else:
+        return None
+        
             
         
-def find_people():
+def find_people(maxn = 3):
     
     # get general div
     divs = driver.find_elements(By.XPATH, '//div[contains(@class, "org-people-profile-card__card-spacing")]')
     div = divs[0] if len(divs) > 0 else None
+    
+    if div is None:
+        print("Can't access to people")
+        return []
     
     # get child buttons
     all_buttons = div.find_elements(By.TAG_NAME, "button")
@@ -153,27 +228,45 @@ def find_people():
     # find connect and message button
     message_buttons = [btn for btn in all_buttons if btn.text == MESSAGE_BUTTON and "--secondary" in btn.get_attribute("class")]
     connect_buttons = [btn for btn in all_buttons if btn.text == CONNECT_BUTTON and "--secondary" in btn.get_attribute("class")]
-    interest_buttons = message_buttons + connect_buttons
+    follow_buttons = [btn for btn in all_buttons if btn.text == FOLLOW_BUTTON and "--secondary" in btn.get_attribute("class")]
+    interest_buttons = message_buttons + connect_buttons + follow_buttons
     
-    people = []
+    if len(interest_buttons ) > 50:
+        return []
+    
+    people = {}
     
     # get profile links and append if not None
     for button in interest_buttons:
-        link = get_profile_link(button)
-        if link is not None:
-            print("Found person: ", link)
-            people.append(link)
+        li = get_profile_li(button)
+        
+        if li is not None:
+            
+            # get description
+            description = get_profile_description(li)
+             
+            # get link
+            link = get_profile_link(li)
+            
+            score = relevance_score(description)
+            
+            if score > 0:
+                people[link] = score
+            
+    links = sorted(people.keys(), key = lambda x: people[x], reverse=True)
     
-    return people
+    return links[:min(len(links), maxn)]
 
 
     
 # load already collected people
 VISITED = []
 
-# load already visited profiles
-with open(PROFILES_FILE) as profiles_file:
-    VISITED = [line.rstrip() for line in profiles_file]
+if os.path.isfile(PROFILES_FILE):
+
+    # load already visited profiles
+    with open(PROFILES_FILE) as profiles_file:
+        VISITED = [line.rstrip() for line in profiles_file]
 
 PROFILES = []
 
@@ -188,7 +281,10 @@ for company in FOLLOWUP:
     
     # retrieve people for the page
     try:
-        people = find_people()
+        people = find_people(maxn = 2)
+        
+        for link in people:
+            print("Found person: ", link)
         
     except StaleElementReferenceException:
         print("Connecting action error")
