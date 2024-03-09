@@ -53,10 +53,10 @@ mu, sigma = 0., 0.1 # mean and standard deviation
 
 USERNAME = ""
 PASSWORD = ""
-SIMILARITY_THRESHOLD = 0.8
+SIMILARITY_THRESHOLD = 0.9
 BROWSER = 'firefox'
 
-LANG = 'en'
+LANG = 'it'
 
 PROFILES_FILE = "outputs/company_people"
 CONNECTED_FILE = "outputs/company_people_connected"
@@ -127,7 +127,8 @@ lang = {
             'italy' : 'Italy',
             'premium_message' : 'Get Hired with Premium',
             'write_a_message' : 'Write a message…',
-            'more_button' : 'More'
+            'more_button' : 'More',
+            'connect_aria' : 'connect'
             },
         'it' : {
             'connect_button' : 'Collegati',
@@ -138,7 +139,8 @@ lang = {
             'italy' : 'Italia',
             'premium_message' : 'Get Hired with Premium',
             'write_a_message' : 'Scrivi un messaggio…',
-            'more_button' : 'Altro'
+            'more_button' : 'Altro',
+            'connect_aria' : 'collegarsi'
             }
     }
 
@@ -153,6 +155,7 @@ MESSAGE_BUTTON = lang[LANG]['message']
 PREMIUM_MESSAGE = lang[LANG]['premium_message']
 WRITE_A_MESSAGE = lang[LANG]['write_a_message']
 MORE_BUTTON = lang[LANG]['more_button']
+CONNECT_ARIA = lang[LANG]['connect_aria']
 
 # %% Load profiles
 
@@ -226,7 +229,7 @@ def find_and_click_connect_button():
         
         if len(dropdowns) > 0:
             # find the button with connect
-            buttons = dropdowns[0].find_elements(By.XPATH, '//div[contains(@aria-label, "connect")]')
+            buttons = dropdowns[0].find_elements(By.XPATH, '//div[contains(@aria-label, "%s")]' % CONNECT_ARIA)
             
             if len(buttons) > 0:
                 print("Connect button found")
@@ -242,60 +245,66 @@ def find_and_click_connect_button():
                 
     return False
 
-# start sending
-for profile in PROFILES:
-    
-    # skip if already sent
-    if profile in CONNECTED:
-        continue
-    
-    # get the page
-    driver.get(profile)
-    humanize()
-    
-    # profile  message limit expired check
-    try:
-        
-        button_clicked = find_and_click_connect_button()
-        
-        if button_clicked:
-            
-            # restore page
-            buttons = driver.find_elements(By.TAG_NAME, "button")
-            no_note = [btn for btn in buttons if btn.text == SEND_WITHOUT_NOTE]
-            if len(no_note) > 0:
-                no_note[0].click()
-                humanize()
-            
-            buttons = driver.find_elements(By.TAG_NAME, "button")
-            not_now = [btn for btn in buttons if btn.text == NOT_NOW]
-            if len(not_now) > 0:
-                not_now[0].click()
-                humanize()
-            
-            # record it it if everything is good
-            CONNECTED.append(profile)
-        
-    except StaleElementReferenceException:
-        print("Something went wrong on:", profile)
-        print("Connecting action error")
-        print("Component staled -> skipping")
-    except NoSuchElementException:
-        print("Something went wrong on:", profile)
-        print("Connection action error")
-        print("Component not found -> skipping")
-    except ElementClickInterceptedException:
-        print("Something went wrong on:", profile)
-        print("Connection action error")
-        print("Component is obscured")
-        
-    
-# %% Store sent
 
 f = open(CONNECTED_FILE, 'a')
+
+try:
+    # start sending
+    for profile in PROFILES:
+        
+        # skip if already sent
+        if profile in CONNECTED:
+            continue
+        
+        # get the page
+        driver.get(profile)
+        humanize()
+        
+        # profile  message limit expired check
+        try:
+            
+            button_clicked = find_and_click_connect_button()
+            
+            if button_clicked:
+                
+                # restore page
+                buttons = driver.find_elements(By.TAG_NAME, "button")
+                no_note = [btn for btn in buttons if btn.text == SEND_WITHOUT_NOTE]
+                if len(no_note) > 0:
+                    no_note[0].click()
+                    humanize()
+                
+                buttons = driver.find_elements(By.TAG_NAME, "button")
+                not_now = [btn for btn in buttons if btn.text == NOT_NOW]
+                if len(not_now) > 0:
+                    not_now[0].click()
+                    humanize()
+                
+                # record it it if everything is good
+                CONNECTED.append(profile)
+                f.write(profile + '\n')
+            
+        except StaleElementReferenceException:
+            print("Something went wrong on:", profile)
+            print("Connecting action error")
+            print("Component staled -> skipping")
+        except NoSuchElementException:
+            print("Something went wrong on:", profile)
+            print("Connection action error")
+            print("Component not found -> skipping")
+        except ElementClickInterceptedException:
+            print("Something went wrong on:", profile)
+            print("Connection action error")
+            print("Component is obscured")
+except:
+    print("Something went drammatically wrong")
+    print("Saving session")
+        
+# close file
+f.close()  
+
 # print results
 for p in CONNECTED:
     print(p)
-    f.write(p + '\n')
     
-f.close()  
+    
