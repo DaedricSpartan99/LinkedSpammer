@@ -43,7 +43,7 @@ mu, sigma = 0., 0.1 # mean and standard deviation
 
 USERNAME = ""
 PASSWORD = ""
-SIMILARITY_THRESHOLD = 0.8
+SIMILARITY_THRESHOLD = 0.9
 BROWSER = 'firefox'
 
 LANG = 'it'
@@ -110,6 +110,9 @@ if not ALREADY_LOGGED_IN:
     submit = driver.find_element("xpath", "/html/body/main/section[1]/div/div/form/div[2]/button").click()
 
     humanize()
+    
+    # sometime it asks human verification
+    input("Can continue? ")
     
 
 # %% Language
@@ -316,10 +319,24 @@ humanize()
 
 # copy into clipboard
 copy()
-humanize()
 
+# ask a verification for the correctness of the message
+if not DEBUG:
+    print("Verification required. Try to paste the message somewhere on your own and check it was copied successfully.")
+    verif = input("Enter 'y' or 'yes' if it's the case': ")
+    if not (verif.lower() == 'y' or verif.lower() == 'yes'):
+        print("Can't continue the program, stopping")
+        sys.exit()
+    
+print("Let's go!")
 
 # %% Send message
+
+def key_down():
+    action = ActionChains(driver)
+    action.send_keys(Keys.DOWN)
+    action.perform()
+    humanize()
         
 def click_message_button():
     
@@ -359,10 +376,14 @@ def paste():
     
 def click_on_submit():
     # submit
-    submit = driver.find_element(By.XPATH, "//button[@type='submit']")
+    submit = driver.find_element(By.XPATH, "//button[@type='submit' and not(@disabled)]")
+    
+    print("Submit button found")
         
     # click on submit
     submit.click()
+    
+    print("Submit button clicked")
     
 # log in place
 f = open(SENT_FILE, 'a')
@@ -376,6 +397,10 @@ for profile in TARGET:
     
     # profile  message limit expired check
     try:
+        # scroll down to see the message button
+        key_down()
+        key_down()
+        
         # find message and click
         if not click_message_button():
             print("Message button not clicked, check the LANG parameter or other")
@@ -392,7 +417,7 @@ for profile in TARGET:
             humanize()
         
             # record it it if everything is good
-            SENT.append(profile)
+            SENT.add(profile)
             f.write(profile + '\n')
         
     except StaleElementReferenceException:
