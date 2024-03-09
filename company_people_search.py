@@ -8,17 +8,21 @@ Created on Thu Feb 15 21:48:08 2024
 
 from selenium import webdriver
 from selenium.webdriver.common.by import By
+from selenium.webdriver.common.keys import Keys
 import time
 
 # import Action chains  
 from selenium.common.exceptions import NoSuchElementException
 from selenium.common.exceptions import StaleElementReferenceException, ElementClickInterceptedException
+from selenium.webdriver.common.action_chains import ActionChains 
 
 import random
 import os
 
 import pandas as pd
 from difflib import SequenceMatcher
+import re
+import traceback
 
 # %%Functions definition
 
@@ -39,14 +43,15 @@ def similar(a, b):
 USERNAME = ""
 PASSWORD = ""
 FOLLOWUP_FILE = "outputs/companies"
-LANG = "en"
+LANG = "it"
 BROWSER = 'firefox'
 
 
 # algorithm parameters
-SIMILARITY_THRESHOLD = 0.8
+SIMILARITY_THRESHOLD = 0.9
+MAX_EMPLOYEE = 70
 STOP_AT = 200
-SEED ="https://www.linkedin.com/company/business-integration-partners/life/65a369e2-9947-47f6-b1ae-7b900802edc8/"
+SEED ="https://www.linkedin.com/company/matdesignitaly/"
 
 
 # %% Initialize driver
@@ -145,6 +150,9 @@ provincia = list(df["Denominazione dell'Unità territoriale sovracomunale \n(val
 
 cities = list(df['Denominazione in italiano'].dropna())
 
+# blacklist some dangerous words
+cities.remove('Floridia')
+
 # %% Load visited profiles
 
 VISITED = []
@@ -177,7 +185,6 @@ def find_and_press_connect_button(profile):
         print("Found connect button: ", connect_buttons[0].get_attribute("id"))
         connect_buttons[0].click()
         success = True
-        PROFILES.append(profile)
         humanize()
         
         # restore page
@@ -199,7 +206,7 @@ def find_and_press_connect_button(profile):
         # secondary = person
         follow_buttons = follow_primary_buttons if len(follow_primary_buttons) > 0 else follow_secondary_buttons
 
-        if len(follow_buttons) < 0:
+        if len(follow_buttons) == 0:
             # unsuccess
             print("Couldn't find a follow button")
             return False
@@ -209,7 +216,7 @@ def find_and_press_connect_button(profile):
         follow_buttons[0].click()
         
         success = True
-        PROFILES.append(profile)
+        
         humanize()
             
         # restore page
@@ -292,12 +299,95 @@ def collect_links_follow(all_buttons):
                 
     return candidates
 
+def close_messages():
+    div = driver.find_element(By.XPATH, "//div[contains(@class, 'msg-overlay-bubble-header__controls')]")
+    messenger_buttons = div.find_elements(By.XPATH, "//button[contains(@class, 'msg-overlay-bubble-header__control')]")
+    
+    if len(messenger_buttons) >= 2:
+        print("Found messenger close button")
+        close_button = messenger_buttons[1]
+        close_button.click()
+        humanize()
+        
+def key_down():
+    action = ActionChains(driver)
+    action.send_keys(Keys.DOWN)
+    action.perform()
+    humanize()
 
-def is_italian(profile):
+def find_more_results():
+    
+    # facilitate the view
+    key_down()
+    key_down()
+    
+    # look for other contacts
+    sections = driver.find_elements(By.XPATH, "//section[@class='artdeco-card']")
+    target = None
+        
+    # select the correct artdeco
+    for section in sections:
+        
+        elems = section.find_elements(By.XPATH, "//*[contains(text(), 'Altre pagine consultate')]")
+        
+        if len(elems) > 0:
+            target = section
+            print("More results: Target found")
+            break
+        
+    if target is None:
+        return []
+    
+    try:
+      
+        # look for the one with text
+        all_buttons = target.find_elements(By.TAG_NAME, "button")
+        more_buttons = [btn for btn in all_buttons if btn.text == 'Mostra tutto' ]
+        
+        print("More results: button found")
+        print("Quantity: ", len(more_buttons))
+        if len(more_buttons) > 0:
+            more_buttons[0].click()
+        else:
+            return []
+        humanize()
+        
+        div = driver.find_element(By.XPATH, "/div[contains(@class, 'artdeco-modal__content')]")
+        print("More results: found div")   
+        
+        return div.find_elements(By.TAG_NAME, "button")
+        
+    except NoSuchElementException:
+        print("Error finding more results")
+        print("Component not found -> skipping")
+        return []
+    except ElementClickInterceptedException:
+        print("Connection action error")
+        print("Component is obscured")
+        return []
+    
+    return []
+
+def is_matching(profile):
     
     print("Examine profile: ", profile)
     driver.get(profile)
     humanize()
+    
+    try:
+        return is_italian() and is_small()
+    
+    except StaleElementReferenceException:
+        print("Link inspection error")
+        print("Component staled -> skipping")
+        return False
+    except NoSuchElementException:
+        print("Link inspection error")
+        print("Component not found -> skipping")
+        return False
+
+
+def is_italian():
     
     # detect profile description
     target_divs = driver.find_elements(By.XPATH, '//div[@class="ph5 pb5"]')
@@ -326,7 +416,12 @@ def is_italian(profile):
     
     if len(blocks) > 0:
         text_divs = blocks[0].find_elements(By.CLASS_NAME, "org-top-card-summary-info-list__info-item")
-        text_div = text_divs[0] if len(text_divs) > 0 else None
+        if len(text_divs) > 0:
+            text_div = text_divs[0]
+        else:
+            return False
+    else:
+        return False
     
     # get text and verify keywords
     text = text_div.text
@@ -372,8 +467,70 @@ def is_italian(profile):
     
     return False
 
+
+
+def is_small():
+    # detect profile description
+    target_divs = driver.find_elements(By.XPATH, '//div[@class="ph5 pb5"]')
+    target_div = None
+    
+    if len(target_divs) > 0:
+        target_div = target_divs[0]
+    else:
+        print("Small check: couldn't find profile description")
+        return False
+    
+    # maybe its a company
+    # target specifically the second
+    blocks = target_div.find_elements(By.XPATH, './/div[@class="inline-block"]')
+    text_div = None
+    
+    if len(blocks) > 0:
+        text_a = blocks[0].find_elements(By.XPATH, "//a[contains(@class, 'org-top-card-summary-info-list__info-item')]")
+        
+        if len(text_a) > 0:
+            text_div = text_a[0]
+        else:
+            return False
+    else:
+        return False
+    
+    # get text and verify keywords
+    text = text_div.text
+    
+    # look for any number K
+    numbers_k = re.findall(r'\d+K', text)
+    
+    if len(numbers_k) > 0:
+        # enterprise is too big
+        print("Enterprise is too big")
+        return False
+    
+    # find all numbers
+    numbers = re.findall(r'\d+', text)
+    numbers = [int(n) for n in numbers]
+    
+    # take maximum
+    employee = max(numbers)
+    
+    print("Number of employee found: ", employee)
+    
+    return employee < MAX_EMPLOYEE
     
 
+# open file and store data
+f = open(FOLLOWUP_FILE, 'a')
+
+# close chat before starting
+try:
+    close_messages()
+except NoSuchElementException:
+    print("Couldn't close chat, element doesn't exists")
+except ElementClickInterceptedException:
+    print("Couldn't close chat, something obscured it")
+
+
+# establish recursion
 def connect(profile):
     
     if len(PROFILES) >= STOP_AT:
@@ -386,8 +543,13 @@ def connect(profile):
     # phase 1: connect or follow
     try:
         # 
-        if not find_and_press_connect_button(profile):
+        if find_and_press_connect_button(profile):
+            PROFILES.append(profile)
+            f.write(profile + '\n')
+            print("Connected or followed profile: ", profile)
+        else:
             print("Unsuccessful connection on profile: ", profile )
+            print("Skipping...")       
         
     except StaleElementReferenceException:
         print("Connecting action error")
@@ -401,16 +563,20 @@ def connect(profile):
         
         
     
-    candidates = []
+    filtered_candidates = []
     
     # phase 2: look for other candidates
     try:
             
-        # look for other contacts
-        all_buttons = driver.find_elements(By.TAG_NAME, "button")
+        results = find_more_results()
+        
+        if len(results) == 0:
+            results = driver.find_elements(By.TAG_NAME, "button")
         
         # collect all profiles
-        candidates = collect_links_connect(all_buttons) + collect_links_follow(all_buttons)
+        candidates = collect_links_connect(results) + collect_links_follow(results)
+        
+        filtered_candidates = list(filter(lambda link: is_matching(link), candidates))   
         
     except StaleElementReferenceException:
         print("Profile retrieval error")
@@ -421,45 +587,30 @@ def connect(profile):
         print("Component not found -> skipping")
         return
 
-    print("Found %d candidates" % len(candidates))
+    print('\n')
+    for candidate in filtered_candidates:
+        print("Found candidate:", candidate)
+        
+    print('\n')
     
-    italian_candidates = []
-    
-    try:              
-        # inspect profiles
-        italian_candidates = filter(lambda link: is_italian(link), candidates)              
-                
-    except StaleElementReferenceException:
-        print("Link inspection error")
-        print("Component staled -> skipping")
-        return
-    except NoSuchElementException:
-        print("Link inspection error")
-        print("Component not found -> skipping")
-        return
-    
-    #print("Adding %d italian candidates" % len(list(italian_candidates)))
-    
-    # finally recurse into filtered candidates
-    for link in italian_candidates:
+    for link in filtered_candidates:
         connect(link)
         
 
 # Execute with a seed
-connect(SEED)
+
+try:
+    connect(SEED)
+except:
+    traceback.print_exc() 
+    print("Something went really wrong")
+    print("Saving session")
+
+
+f.close()
 
 print("Algorithm end \n")
 
-# %% Store profiles
-
-# open file and store data
-f = open(FOLLOWUP_FILE, 'a')
-# print results
-for p in PROFILES:
-    print(p)
-    f.write(p + '\n')
-    
-f.close()  
     
 
    

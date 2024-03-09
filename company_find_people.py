@@ -16,22 +16,19 @@ from selenium.common.exceptions import StaleElementReferenceException, ElementCl
 
 import random
 
-from difflib import SequenceMatcher
+#from difflib import SequenceMatcher
 import os
+from thefuzz import fuzz
 
 # %%Functions definition
-
-#HUMANIZE_MEAN_TIME = 10
-#HUMANIZE_RANDRANGE = (-4, 20)
 
 def humanize():
     # better non farsi sgamare
     time.sleep(2.5 + random.uniform(-1,3))
 
 
-    
-def similar(a, b):
-    return SequenceMatcher(None, a, b).ratio()
+def similar(shorter, longer):
+    return fuzz.partial_ratio(shorter, longer) / 100.0
 
 # %% Load company profiles
 
@@ -46,17 +43,34 @@ with open(FOLLOWUP_FILE) as follows_file:
 # filter companies
 FOLLOWUP = list(filter(lambda profile: "company" in profile, FOLLOWUP))
 
+# %% Load visited companies
+
+VISITED_FILE = "outputs/visited_companies"
+
+VISITED_COMPANIES = []
+
+# load already visited profiles
+with open(VISITED_FILE) as follows_file:
+    VISITED_COMPANIES = [line.rstrip() + 'people/' for line in follows_file]
+    
+# filter companies
+VISITED_COMPANIES = list(filter(lambda profile: "company" in profile, VISITED_COMPANIES))
+
+# %% Filter already done
+
+# remove visited from followup
+FOLLOWUP = set(FOLLOWUP).difference(set(VISITED_COMPANIES))
 
 # %% Profile info, credentials and parameters
 
 # profile info and storage
 USERNAME = ""
 PASSWORD = ""
-LANG = "en"
+LANG = "it"
 BROWSER = 'firefox'
 
 PROFILES_FILE = "outputs/company_people"
-SIMILARITY_THRESHOLD = 0.8
+SIMILARITY_THRESHOLD = 0.9
 
 
 # %% Initialize driver
@@ -154,9 +168,9 @@ if not ALREADY_LOGGED_IN:
 RELEVANT_KEYWORDS = {
         'director' : 10,
         'ceo' : 10,
-        'dirigente' : 10,
-        'delegato' : 10,
-        'direttore' : 10,
+        'amministratore delegato' : 10,
+        'direttore generale' : 10,
+        'direttore operativo' : 5,
         'co-founder' : 10,
         'founder' : 10,
         'fondatore' : 10,
@@ -169,12 +183,17 @@ def relevance_score(description):
     score = 0
     
     # separe description into keywords
-    words = [word.strip().lower() for word in description.split(' ')]
+    #words = [word.strip().lower() for word in description.split(' ')]
     
-    for word in words:
-        for key, value in RELEVANT_KEYWORDS.items():
-            if similar(word, key) > SIMILARITY_THRESHOLD:
-                score += value
+    #for word in words:
+    #    for key, value in RELEVANT_KEYWORDS.items():
+    #        if similar(word, key) > SIMILARITY_THRESHOLD:
+    #            score += value
+    
+    for key, value in RELEVANT_KEYWORDS.items():
+        # take the exact match
+        if similar(key, description.lower()) > SIMILARITY_THRESHOLD:
+            score += value
     
     return score
     
@@ -244,6 +263,9 @@ def find_people(maxn = 3):
             
             # get description
             description = get_profile_description(li)
+            
+            if description is None:
+                continue
              
             # get link
             link = get_profile_link(li)
@@ -270,6 +292,9 @@ if os.path.isfile(PROFILES_FILE):
 
 PROFILES = []
 
+f = open(PROFILES_FILE, 'a')
+company_f = open(VISITED_FILE, 'a')
+
 # execute script
 for company in FOLLOWUP:
     
@@ -281,7 +306,7 @@ for company in FOLLOWUP:
     
     # retrieve people for the page
     try:
-        people = find_people(maxn = 2)
+        people = find_people(maxn = 1)
         
         for link in people:
             print("Found person: ", link)
@@ -300,13 +325,20 @@ for company in FOLLOWUP:
     for person in people:
         if person not in VISITED:
             PROFILES.append(person)
+            f.write(person + '\n')
             
+    # everything good so mark as visited company
+    VISITED_COMPANIES.append(company)
+    company_f.write(company + '\n')
+            
+f.close() 
+company_f.close()
+
 # %% Output new found people
 
-f = open(PROFILES_FILE, 'a')
 # print results
 for p in PROFILES:
     print(p)
-    f.write(p + '\n')
+
     
-f.close()  
+ 
